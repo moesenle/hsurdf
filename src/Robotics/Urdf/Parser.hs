@@ -8,10 +8,11 @@ import Text.XML.Light.Input
 import Robotics.Urdf.Types
 import Data.List (partition, find)
 import Data.List.Split (splitOn)
-import Data.Maybe (catMaybes, listToMaybe, mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Control.Monad (liftM)
-import Control.Applicative((<|>))
-import qualified Data.Map.Strict as M
+import Control.Applicative ((<|>))
+import qualified Data.Map.Strict as SM
+import qualified Data.Map as M
 
 class StringMapKey a where
     key :: a -> String
@@ -32,11 +33,11 @@ instance StringMapKey Joint where
 instance StringMapKey Material where
     key = material_name
 
-listToMap :: (StringMapKey a) => [a] -> M.Map String a
-listToMap = M.fromList . map (\e -> (key e, e))
+listToMap :: (StringMapKey a) => [a] -> SM.Map String a
+listToMap = SM.fromList . map (\e -> (key e, e))
 
 parseUrdf :: String -> Maybe Robot
-parseUrdf = listToMaybe . catMaybes . map parseRobot . parseXML
+parseUrdf = listToMaybe . mapMaybe parseRobot . parseXML
 
 parseRobot :: Content -> Maybe Robot
 parseRobot c = createRobot $ parseUrdfElement c
@@ -49,12 +50,12 @@ createRobot r @ UrdfElement { uType = tp, uChildren = cs }
             ms = mapMaybe createMaterial cs
         in do
           n <- uName r
-          return $ Robot { robot_name = n,
-                           root_link = findRoot js,
-                           links = listToMap ls,
-                           joints = listToMap js,
-                           materials = listToMap ms
-                         }
+          return Robot { robot_name = n,
+                         root_link = findRoot js,
+                         links = listToMap ls,
+                         joints = listToMap js,
+                         materials = listToMap ms
+                       }
     | otherwise = Nothing
                    
 createLink :: UrdfElement -> Maybe Link
@@ -64,26 +65,26 @@ createLink r @ UrdfElement { uType = tp, uChildren = cs }
             c = createGeometry =<< getElement "collision" cs
         in do
           n <- uName r
-          return $ Link { link_name = n, visual = v, collision = c }
+          return Link { link_name = n, visual = v, collision = c }
     | otherwise = Nothing
 
 createJoint :: UrdfElement -> Maybe Joint
 createJoint r @ UrdfElement { uType = tp, uChildren = cs }
     | tp == "joint" = do
         n <- uName r
-        jtp <- (jointType =<< getAttr "type" r)
+        jtp <- jointType =<< getAttr "type" r
         origin <- (createOrigin =<< getElement "origin" cs)
                   <|> Just ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
         axis <- (createAxis =<< getElement "axis" cs) <|> Just (1.0, 0.0, 0.0)
         parent <- getAttr "link" =<< getElement "parent" cs
         child <- getAttr "link" =<< getElement "child" cs
-        return $ Joint { joint_name = n,
-                         joint_type = jtp,
-                         joint_origin = origin,
-                         joint_parent = parent,
-                         joint_child = child,
-                         joint_axis = axis
-                       }
+        return Joint { joint_name = n,
+                       joint_type = jtp,
+                       joint_origin = origin,
+                       joint_parent = parent,
+                       joint_child = child,
+                       joint_axis = axis
+                     }
     | otherwise = Nothing
 
 createGeometry :: UrdfElement -> Maybe Geometry
@@ -92,8 +93,8 @@ createGeometry UrdfElement { uChildren = cs } =
     do 
       o <- createOrigin =<< getElement "origin" cs
       s <- createShape =<< getElement "geometry" cs
-      return $ Geometry { geometry_origin = o, shape = s,
-                          material = m }
+      return Geometry { geometry_origin = o, shape = s,
+                        material = m }
 
 createOrigin :: UrdfElement -> Maybe Pose
 createOrigin e = do
@@ -102,12 +103,11 @@ createOrigin e = do
   return (xyz, rpy)
 
 createShape :: UrdfElement -> Maybe Shape
-createShape UrdfElement { uChildren = cs } = do
-  s <- (getElement "box" cs >>= createBox)
-       <|> (getElement "cylinder" cs >>= createCylinder)
-       <|> (getElement "sphere" cs >>= createSphere)
-       <|> (getElement "mesh" cs >>= createMesh)
-  return s
+createShape UrdfElement { uChildren = cs } =
+    (getElement "box" cs >>= createBox)
+    <|> (getElement "cylinder" cs >>= createCylinder)
+    <|> (getElement "sphere" cs >>= createSphere)
+    <|> (getElement "mesh" cs >>= createMesh)
   where
     createBox b = do
       s <- getAttr "size" b >>= parseVec3
@@ -134,7 +134,7 @@ createMaterial me @ UrdfElement { uType = tp, uChildren = cs }
   m <- (getElement "color" cs >>= getAttr "rgba" >>= createColor)
        <|> (getElement "texture" cs >>= getAttr "filename" >>= createTexture)
        <|> Just Global
-  return $ Material { material_name = n, material_data = m }
+  return Material { material_name = n, material_data = m }
   where
     createColor c =
         case splitOn " " c of
@@ -159,13 +159,16 @@ parseVec3 s =
       _ -> Nothing
 
 findRoot :: [Joint] -> Maybe String
-findRoot js =
-    case js of
-      [] -> Nothing
-      (Joint { joint_parent=p } : []) -> Just p
-      (Joint { joint_parent=p, joint_child=c } : js') ->
-          let r = findRoot js' in
-          if r == Just c then Just p else r
+findRoot js = root Nothing js $ childToParentMap js
+  where
+    childToParentMap =
+        foldl (\m j -> M.insert (joint_child j) (joint_parent j) m) M.empty
+    root r [] _ = r
+    root Nothing [j] _ = Just $ joint_parent j
+    root r (j : js') jm =
+        case M.lookup (joint_parent j) jm of
+          Just _ -> root r js' jm
+          Nothing -> root (Just $ joint_parent j) js' jm
 
 parseUrdfElement :: Content -> UrdfElement
 parseUrdfElement (Elem e) =

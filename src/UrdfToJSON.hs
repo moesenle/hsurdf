@@ -70,7 +70,7 @@ instance ToJSON Shape where
 
 instance ToJSON Material where
     toJSON (Material n d) =
-        object $ [ "name" .= n ] ++ (encodeData d)
+        object $ ( "name" .= n ) : encodeData d
         where encodeData (Color (r, g, b, a)) = [ "color" .= [r, g, b, a] ]
               encodeData (Texture f) = [ "texture" .= f ]
               encodeData Global = []
@@ -83,5 +83,5 @@ main = do
       putStrLn $ "Usage: " ++ pn ++ " <filename>"
   else
       do
-        urdf <- readFile (args !! 0)
+        urdf <- readFile (head args)
         putStrLn $ maybe "could not parse URDF" (B.unpack . encode) (parseUrdf urdf)
