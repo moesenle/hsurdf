@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 import Robotics.Urdf.Types
 import Robotics.Urdf.Parser    
