@@ -33,7 +33,7 @@ library
     Robotics.Urdf.Parser
   other-modules:
   build-depends:
-    base >=4.6 && <4.7,
+    base >=4.6 && < 5,
     containers >=0.5,
     split >=0.2,
     xml >=1.3
